@@ -1,31 +1,31 @@
 import streamlit as st
 import tensorflow as tf
-import numpy as np
 from PIL import Image
 from tensorflow.keras.applications.mobilenet import preprocess_input as mobilenet_preprocess_input
-import cv2
+import numpy as np
 
 # Define the dimensions of your input images
-img_width, img_height = 224, 224
+img_width, img_height = 150, 150
 
-# Load the pre-trained model for food classification
-food_model = tf.keras.models.load_model('capstone_labelled_food_classification_model3.h5', compile=False)
-food_model.build((None, img_width, img_height, 3))
+# Load the pre-trained models
+food_classification_model_1 = tf.keras.models.load_model('food_classification_model_Pre_2.h5', compile=False)
+food_classification_model_1.build((None, img_width, img_height, 3))
 
-# Load the eco-score models
-eco_score_models = {
-    'en_biscuits': tf.keras.models.load_model('best_model_ecoscore_prediction_biscuits.h5', compile=False),
-    'en_candies': tf.keras.models.load_model('best_model_ecoscore_prediction_candies.h5', compile=False),
-    'en_cheeses': tf.keras.models.load_model('best_model_ecoscore_prediction_cheeses.h5', compile=False)
-}
+food_classification_model_2 = tf.keras.models.load_model('food_classification_model_Pre.h5', compile=False)
+food_classification_model_2.build((None, img_width, img_height, 3))
+
+eco_score_model = tf.keras.models.load_model('model_ecoscore_score_score_prediction_allcats_app.h5', compile=False)
+eco_score_model.build((None, img_width, img_height, 3))
+
+nutri_score_model = tf.keras.models.load_model('model_nutriscore_score_prediction_allcats_app.h5', compile=False)
+nutri_score_model.build((None, img_width, img_height, 3))
 
 def preprocess_image(image, target_size=(img_width, img_height)):
     if isinstance(image, str):  # Check if it's a file path
         # Load the image using tf.keras.preprocessing.image
         img = tf.keras.preprocessing.image.load_img(image, target_size=target_size)
     else:  # Assume it's a PIL Image object
-        img = Image.fromarray(image)  # Convert NumPy array to PIL Image
-        img = img.resize(target_size)
+        img = image.resize(target_size)
 
     # Convert the image to a NumPy array
     img_array = tf.keras.preprocessing.image.img_to_array(img)
@@ -34,52 +34,42 @@ def preprocess_image(image, target_size=(img_width, img_height)):
     img_array = tf.expand_dims(img_array, axis=0)
 
     # Preprocess the image for the food classification model
-    img_array = mobilenet_preprocess_input(img_array)
+    img_food_classification = mobilenet_preprocess_input(img_array)
 
-    return img_array
+    return img_food_classification
 
-def predict_food_category(img):
-    # Make predictions on the image for food classification
-    prediction = food_model.predict(img)
-    class_names = ['en_biscuits', 'en_cheeses', 'en_candies']
-    return class_names[np.argmax(prediction)]
+def get_eco_category(score):
+    # Ensure the score is within the valid range [0, 100]
+    score = max(0, min(score, 100))
 
-def remove_background(image):
-    # Convert the image to a NumPy array
-    img_array = np.array(image)
+    if 80 <= score <= 100:
+        return "A", "darkgreen"
+    elif 60 <= score < 80:
+        return "B", "lightgreen"
+    elif 40 <= score < 60:
+        return "C", "yellow"
+    elif 20 <= score < 40:
+        return "D", "orange"
+    else:
+        return "E", "red"
 
-    # Extract the green color channel (assuming the image is in BGR format)
-    green_channel = img_array[:, :, 1]  # Green channel is at index 1
-
-    # Apply thresholding to create a binary mask based on the green channel
-    _, mask = cv2.threshold(green_channel, 254, 255, cv2.THRESH_BINARY)
-
-    # Invert the mask
-    mask_inv = cv2.bitwise_not(mask)
-
-    # Apply the mask to the original image
-    result = cv2.bitwise_and(img_array, img_array, mask=mask_inv)
-
-    return result
-
-def preprocess_image_eco_score(image, target_size=(img_width, img_height)):
-    # Additional preprocessing specific to the eco-score models, if needed
-    # ...
-
-    return preprocess_image(image, target_size)  # Reuse the main preprocessing function for simplicity
-
-def predict_eco_score(img, category):
-    # Use the appropriate eco-score model based on the predicted category
-    eco_score_model = eco_score_models.get(category)
-    if eco_score_model is None:
-        return None  # Handle the case where the eco-score model is not found
-
-    # Make predictions on the image for eco-score
-    eco_score_prediction = eco_score_model.predict(img)
-    return eco_score_prediction
+def get_nutri_category(score):
+    # Ensure the score is within the valid range [0, 100]
+    score = max(0, min(score, 100))
+    
+    if score <= -1:
+        return "A", "darkgreen"
+    elif 0 <= score <= 2:
+        return "B", "lightgreen"
+    elif 3 <= score <= 10:
+        return "C", "yellow"
+    elif 11 <= score <= 18:
+        return "D", "orange"
+    else:
+        return "E", "red"
 
 def main():
-    st.title("Food Image Classifier with Eco-Score")
+    st.title("Food Image Classifier with Eco-Score and Nutri-Score")
 
     uploaded_file = st.file_uploader("Choose a food image...", type=["jpg", "jpeg", "png"])
 
@@ -87,28 +77,63 @@ def main():
         image = Image.open(uploaded_file)
         st.image(image, caption="Uploaded Image.", use_column_width=True)
 
-        # Remove background
-        img_no_background = remove_background(image)
-        st.image(img_no_background, caption="Image without Background", use_column_width=True)
+        # Preprocess and make predictions for food category (model 1)
+        img_food_classification_1 = preprocess_image(image)
+        food_classification_prediction_1 = food_classification_model_1.predict(img_food_classification_1)
+        food_class_names_1 = ['en_candies', 'en_cheeses']
+        food_classification_category_1 = food_class_names_1[np.argmax(food_classification_prediction_1)]
+        food_classification_confidence_1 = np.max(food_classification_prediction_1)
 
-        # Preprocess and make predictions for food category
-        img_food = preprocess_image(img_no_background)
-        food_category = predict_food_category(img_food)
+        # Preprocess and make predictions for food category (model 2)
+        img_food_classification_2 = preprocess_image(image)
+        food_classification_prediction_2 = food_classification_model_2.predict(img_food_classification_2)
+        food_class_names_2 = ['en_biscuits', 'en_cheeses']
+        food_classification_category_2 = food_class_names_2[np.argmax(food_classification_prediction_2)]
+        food_classification_confidence_2 = np.max(food_classification_prediction_2)
 
-        # Display the food category prediction
-        st.subheader("Food Category Prediction:")
-        st.write(food_category)
+        # Display the food category prediction with the higher confidence score
+        if food_classification_confidence_1 > food_classification_confidence_2:
+            st.subheader("Food Category Prediction:")
+            st.write(food_classification_category_1)
+        else:
+            st.subheader("Food Category Prediction:")
+            st.write(food_classification_category_2)
 
-        # Preprocess image for eco-score model
-        img_eco_score = preprocess_image_eco_score(img_no_background)
+        # Add description for Eco-Score model
+        st.subheader("Eco-Score Model:")
+        st.write(
+            "Public data : quantitative data on product Life Cycle Assessment (LCA) from the Agribalyse database, drawn up by experts and implemented in Agribalyse. Impacts on environment through production, transport, fabrication, and packaging are taken into account, giving a score out of 100. Data not included in LCA but which do take into account the positive or negative impact on the environment: data on the product label or given by the producer, as well as additional quality criteria : recyclability of packages, labels (Bio, quality etc.), where the ingredients come from, seasonality of food used (for recipes and ready meals). All these data will give a bonus/malus which will influence the score. The total mark out of 100 gives a score from A to E."
+        )
 
-        # Make predictions for eco-score based on the food category
-        eco_score_prediction = predict_eco_score(img_eco_score, food_category)
+        # Make predictions for Eco-Score
+        eco_score_prediction = eco_score_model.predict(preprocess_image(image))
 
-        # Display the eco-score prediction
+        # Get Eco-Score category and color
+        eco_category, eco_color = get_eco_category(eco_score_prediction[0][0])
+
+        # Display the Eco-Score prediction and category
         st.subheader("Eco-Score Prediction:")
-        if eco_score_prediction is not None:
-            st.write(eco_score_prediction)
+        st.write(eco_score_prediction[0][0])
+        st.subheader("Eco-Score Category:")
+        st.write(f'<p style="color:{eco_color}; font-size: 36px;">{eco_category}</p>', unsafe_allow_html=True)
+
+        # Make predictions for Nutri-Score
+        nutri_score_prediction = nutri_score_model.predict(preprocess_image(image))
+
+        # Get Nutri-Score category and color
+        nutri_category, nutri_color = get_nutri_category(nutri_score_prediction[0][0])
+
+        # Add description for Nutri-Score model
+        st.subheader("Nutri-Score Model:")
+        st.write(
+            "A Nutri-Score for a particular food item is given in one of five classification letters, with 'A' being a preferable score and 'E' being a detrimental score. Products with a NutriScore value of -1 or below receive an A grade, while those with a value between 0 and 2 are classified as B. Products scoring between 3 and 10 receive a C grade, whereas those scoring 11 to 18 are assigned a D grade. Finally, products with a NutriScore value above 19 receive an E grade."
+        )
+
+        # Display the Nutri-Score prediction and category
+        st.subheader("Nutri-Score Prediction:")
+        st.write(nutri_score_prediction[0][0])
+        st.subheader("Nutri-Score Category:")
+        st.write(f'<p style="color:{nutri_color}; font-size: 36px;">{nutri_category}</p>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
